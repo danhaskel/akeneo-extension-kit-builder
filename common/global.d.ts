@@ -708,6 +708,20 @@ declare interface AttributeCreateData {
      * Whether the attribute is read-only
      */
     is_read_only?: boolean;
+    /**
+     * Column definitions for Table attributes (type `pim_catalog_table`)
+     */
+    table_configuration?: TableColumnDefinition[];
+}
+
+/**
+ * Column definition for a Table attribute
+ */
+declare interface TableColumnDefinition {
+    code: string;
+    data_type: 'text' | 'boolean' | 'number' | 'select' | 'reference_entity_single_link';
+    labels?: { [locale: string]: string };
+    is_required_for_completeness?: boolean;
 }
 
 /**

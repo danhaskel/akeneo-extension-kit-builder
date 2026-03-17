@@ -1,78 +1,145 @@
-# Akeneo Asset Migration Extension
+# Akeneo Kit Manager Extension
 
-A UI extension for Akeneo PIM that lets you bulk-migrate product media into asset collections directly from the PIM interface. Built with TypeScript, React, and Vite.
+A UI extension for Akeneo PIM that adds a **Kit Manager** tab to product pages. It lets you define a blueprint of component roles (using a Table Attribute) and associate specific SKUs into those slots (using an Association). Built with TypeScript, React, and Vite.
 
-## Overview
+---
 
-> **Important:** Assets migrated using this tool will not display previews and are not accessible by any internal AI functions at this time.
+## Prerequisites — PIM Configuration Required Before Use
 
-This extension adds a navigation tab inside Akeneo ("Asset Migration") where you can:
+These items **must exist in your PIM instance** before the extension will work. The extension cannot create them automatically.
 
-1. Select a source `asset_collection` attribute
-2. Select a destination `asset_collection` attribute and target asset family
-3. Preview the number of affected products
-4. Run the migration — the extension handles asset creation and product patching
+### 1. Association Type: `KIT_CONTENT`
 
-## Migration Modes
+Create this at **Settings → Association Types → Create**.
 
-### `asset_collection` → `asset_collection`
+| Field | Value |
+|-------|-------|
+| Code | `KIT_CONTENT` |
+| Label (en_US) | Kit Content |
+| Type | One-to-many (default) |
 
-Both source and destination use asset media storage. The file code from the source asset can be referenced directly in the destination — no download/re-upload needed. The extension:
+> **Without this, saving kit components will silently fail.** The extension does not validate whether the association type exists at startup.
 
-1. Reads source asset codes from the product's collection attribute
-2. Looks up each source asset to get its media file code
-3. Upserts a destination asset referencing that file code
-4. Patches the product to link the destination asset (skipped for same-family migrations)
+### 2. Akeneo Edition: Growth or Serenity
 
-### `image` / `file` → `asset_collection` _(temporarily disabled)_
+The self-provisioning step creates a **Table Attribute** (`pim_catalog_table`). This attribute type is only available on **Akeneo Growth Edition or higher**. If your instance is on the Essentials edition, setup will fail with a `422` error.
 
-Cross-type migration is currently disabled. The code is preserved in `src/hooks/useMigration.ts` (commented out) and can be re-enabled when ready. When active, this mode downloads product media files and re-uploads them to asset storage — required because product and asset files live in separate CDN buckets.
+### 3. Admin API Token
+
+The Bearer Token configured in `extension_configuration.json` must belong to a user with **Admin** privileges. Creating attributes and modifying family definitions requires elevated permissions. Non-admin tokens will receive a `403` error during setup.
+
+---
+
+## How It Works
+
+### Blueprint (Table Attribute)
+
+Each product that is a "kit" has a Table Attribute (e.g. `kit_blueprint`) that defines its **component roles**. Each row in the table describes one slot:
+
+| Column | Description |
+|--------|-------------|
+| `role_code` | Unique identifier for this slot, e.g. `front_wheel` |
+| `family` | The Akeneo family code that a component product must belong to, e.g. `wheels` |
+| `required` | Whether this slot must be filled for the kit to be complete |
+| `sync_attributes` | Comma-separated attribute codes to sync/export from the component, e.g. `weight,color,diameter` |
+
+### Components (KIT_CONTENT Association)
+
+When you assign a product to a slot in the **Components** tab, the extension saves it to the `KIT_CONTENT` association on the parent product. On load, it maps each associated product back to its blueprint role by matching the product's `family` against the `family` column in the table.
+
+### Self-Provisioning
+
+The first time you open the Kit Manager tab on a product, it checks whether the `kit_blueprint_attribute` (configured in `extension_configuration.json`) exists in that product's values. If not, it shows a **Setup Kit Support** button that:
+
+1. Creates the Table Attribute with the correct column configuration via `POST /api/rest/v1/attributes`
+2. Adds the attribute to the current product's family via `PATCH /api/rest/v1/families/{code}`
+
+After setup completes the tab reloads and the Blueprint editor becomes available.
+
+---
 
 ## Setup
 
-### Prerequisites
+### Step 1: Create the `KIT_CONTENT` association type in PIM
 
-- Node.js and npm
-- An Akeneo PIM instance with API access
-- A Bearer Token for the PIM REST API
+Settings → Association Types → Create → code: `KIT_CONTENT`
 
-### Configuration
-
-Copy the sample configuration and fill in your credentials:
+### Step 2: Copy and edit the sample configuration
 
 ```bash
 cp extension_configuration.sample.json extension_configuration.json
 ```
 
 Edit `extension_configuration.json`:
-- Set `pim_host` to your PIM instance URL (e.g. `https://your-instance.cloud.akeneo.com`)
-- Set the Bearer Token `value` to a valid API token
+
+```json
+{
+  "position": "pim.product.tab",
+  "name": "kit_manager",
+  "type": "sdk_script",
+  "file": "dist/app.js",
+  "credentials": [
+    {
+      "code": "pim_api",
+      "type": "Bearer Token",
+      "value": "YOUR_BEARER_TOKEN_HERE"
+    }
+  ],
+  "configuration": {
+    "default_label": "Kit Manager",
+    "labels": { "en_US": "Kit Manager" },
+    "custom_variables": {
+      "kit_blueprint_attribute": "kit_blueprint"
+    }
+  }
+}
+```
+
+- `kit_blueprint_attribute`: the attribute code that will be created during setup. Change this only if `kit_blueprint` conflicts with an existing attribute.
 
 > **Note:** `extension_configuration.json` is gitignored — never commit real credentials.
 
-### Environment Variables
-
-Create a `.env` file at the project root:
-
-```
-API_TOKEN=your_bearer_token_here
-PIM_HOST=https://your-instance.cloud.akeneo.com
-```
-
-These are injected automatically at deploy time.
-
-### Deploy
+### Step 3: Deploy
 
 ```bash
-make update-dev   # dev build
-make update       # production build
+npm install        # first time only
+make update-dev    # deploy to dev PIM
+make update        # deploy to production PIM
 ```
 
-Re-deploy after token refresh (tokens expire ~every hour).
+---
 
-## Known Issues and Blockers
+## Initializing the Extension (First Use)
 
-The following issues apply to the cross-type (`image`/`file` → `asset_collection`) migration path, which is currently disabled:
+1. Open any product in your PIM that belongs to a family you want to use as a kit.
+2. Click the **Kit Manager** tab.
+3. The extension checks for the `kit_blueprint` attribute on the product.
+4. If missing, you'll see the setup screen listing prerequisites. Click **Setup Kit Support**.
+5. The extension creates the Table Attribute and adds it to the current product's family.
+6. The tab reloads automatically. The **Blueprint** editor is now available.
+7. Add rows to define component roles (role code, family, required, sync attributes).
+8. Click **Save Blueprint**.
+9. Switch to the **Components** tab. Search for and assign products to each slot.
+10. Click **Save Components**.
 
-- **CORS may block `Asset-media-file-code` response header** — the browser may be unable to read the header returned by `asset_media_file_v1.upload()` due to the sandboxed iframe `null` origin, causing uploads to fail with `missing asset-media-file-code header`.
-- **No binary upload support via `external.call()`** — `PIM.api.external.call()` only accepts a `string` body, so multipart/form-data uploads must go through `PIM.api.asset_media_file_v1.upload()` instead.
+To enable kit management on products from *other families*, repeat steps 1–6 from a product in that family. The attribute already exists after the first setup; the extension will only add it to the new family.
+
+---
+
+## Development
+
+```bash
+npm install     # install dependencies
+npm run dev     # start local dev server
+make update-dev # build and deploy to dev PIM
+make update     # build and deploy to production PIM
+```
+
+---
+
+## Known Limitations
+
+- **`KIT_CONTENT` must pre-exist** — the extension does not create this association type. Missing it causes component saves to fail silently.
+- **Growth/Serenity edition required** — Table Attributes (`pim_catalog_table`) are not available on Essentials edition.
+- **One blueprint per family** — the Table Attribute is shared across all products in a family. Changing a blueprint row affects all kits in that family. Per-product variation is expressed through the component assignments, not the blueprint definition.
+- **Family matching** — components are matched to roles by `family` code. If a component product's family doesn't match any blueprint row, it will appear unassigned.

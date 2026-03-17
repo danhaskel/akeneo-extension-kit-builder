@@ -1,6 +1,6 @@
 {
-  "position": "pim.activity.navigation.tab",
-  "name": "asset_migration",
+  "position": "pim.product.tab",
+  "name": "kit_manager",
   "type": "sdk_script",
   "file": "dist/app.js",
   "credentials": [
@@ -11,12 +11,12 @@
     }
   ],
   "configuration": {
-    "default_label": "Asset Migration",
+    "default_label": "Kit Manager",
     "labels": {
-      "en_US": "Asset Migration"
+      "en_US": "Kit Manager"
     },
     "custom_variables": {
-      "pim_host": "https://your-instance.cloud.akeneo.com"
+      "kit_blueprint_attribute": "kit_blueprint"
     }
   }
 }

@@ -1,104 +1,87 @@
-# Project Context: Akeneo Kit Manager Extension
+# Project Context: Akeneo Kit Manager Extension (Table-Driven)
 
-This repository is an Akeneo UI extension designed to model and manage product "Kits" (bundles). It is implemented using **TypeScript, React, and Vite**. The extension provides a specialized interface for defining kit blueprints, assigning components to functional roles based on Family, and generating optimized GraphQL queries for headless consumers.
+This repository is an Akeneo UI extension for managing Product Kits. It uses **TypeScript, React, and Vite**. This version uses **Akeneo Table Attributes** as the "Blueprint" (the rules) and standard **Associations** for the "Components" (the instances).
 
 ---
 
-## 1. Data Modeling & Logic
-
-### The "Family-Based Role" Model
-* **The Blueprint (`kit_blueprint`):** A custom Text Area attribute (storing JSON) on the Kit Product. This is the "Schema" of the kit.
-    * **Structure:** `{"roles": [{"role_code": string, "family": string, "label": string, "required": boolean, "sync_attributes": string[]}]}`
-* **Associations:** All kit components are linked via a single standard Association Type (e.g., `KIT_CONTENT`).
-* **Role Mapping:** The UI extension maps an associated product to a "Role" in the blueprint by matching the product's **Family** to the `family` defined in the role.
-
-### Logic Constraints
-* **Validation:** A component can only be assigned to a Role if its Family matches the Role's definition.
-* **Multiplicity:** If a kit requires two items of the same Family (e.g., "Front Tire" and "Rear Tire"), the `role_code` serves as the unique identifier to distinguish them.
+## 1. Logic & Self-Provisioning
+* **Auto-Discovery:** On load, the extension checks for a specific Table Attribute code (stored in `PIM.custom_variables['kit_blueprint_attribute']`).
+* **Self-Provisioning:** If the attribute is missing, the extension provides a "Setup Kit Support" button. This triggers:
+    1. `POST /api/rest/v1/attributes` to create a Table Attribute with columns: `role_code` (text), `family` (text), `required` (boolean), and `sync_attributes` (text).
+    2. `PATCH /api/rest/v1/families/{current_family}` to add this attribute to the product's family.
+* **The "Link":** Components are associated via the `KIT_CONTENT` association type. The extension maps these components to Table rows by matching the component's **Family** to the `family` column in the Table.
 
 ---
 
 ## 2. Technical Stack & Akeneo SDK (`PIM.*`)
 
 ### SDK Interaction
-* **Source of Truth:** Always consult `common/global.d.ts` for the `PIM.*` global type definitions.
-* **API Calls:**
-    * `PIM.api.product_v1.get(identifier)`: To fetch the Kit and its blueprint.
-    * `PIM.api.external.call()`: **Crucial.** Use this to proxy requests through the Akeneo backend to avoid CORS issues when fetching component metadata from the REST API.
-* **Configuration:** Custom variables like `pim_host` are accessed via `PIM.custom_variables['pim_host']`.
-
-### Architecture
-* **Entry Point:** The extension is registered as a **Product Tab** in `extension_configuration.json`.
-* **State Management:** Use a lightweight state (e.g., React Context or Zustand) to track the "Draft" state of a kit before saving.
-* **Component Strategy:**
-    * `BlueprintDesigner`: Interface for Admin users to define Roles and `sync_attributes`.
-    * `KitConfigurator`: Interface for Enriched users to pick specific SKUs for defined Roles.
-    * `GraphQLGenerator`: A utility tab that creates a query string based on the active Blueprint.
+* **Context:** The extension runs as a **Product Tab**. Use `PIM.api.product_v1.get()` to retrieve the current product and its `identifier` and `family`.
+* **CORS & Proxy:** Always use `PIM.api.external.call()` to interact with REST endpoints (Attributes, Families, Products) to avoid browser-side CORS blocks.
+* **Persistent Config:** Use `PIM.custom_variables` for the attribute code. If the variable is empty, the extension is in "Setup Mode."
 
 ---
 
-## 3. Coding Standards
+## 3. Data Shapes & Types
 
-### TypeScript
-* **Strict Typing:** Define interfaces for `KitBlueprint`, `KitRole`, and `AkeneoProduct`. Avoid `any`.
-* **Discriminated Unions:** Use for handling different states of a kit component (e.g., `Empty`, `Valid`, `InvalidFamily`).
+### The Table Blueprint
+The Table attribute returns an array of objects.
+```typescript
+interface KitBlueprintRow {
+    uuid: string;
+    role_code: string;      // e.g., "front_wheel"
+    family: string;         // e.g., "wheels"
+    required: boolean;
+    sync_attributes: string; // e.g., "weight,color,diameter"
+}
+Component Mapping
+TypeScript
+interface KitComponent {
+    role: KitBlueprintRow;
+    product: AkeneoProduct | null; // The associated product matching this role's family
+}
+4. UI Architecture
+Component Breakdown
+SetupView: Visible only when the Table Attribute is missing. Handles API calls to create and assign the Table.
 
-### API Patterns
-* **Batch Fetching:** Never fetch 10 components in 10 separate calls. Use the `identifiers` filter: `/api/rest/v1/products?identifiers=SKU1,SKU2,SKU3`.
-* **Immutability:** When updating the Blueprint JSON, treat the existing attribute value as immutable and return a new object.
+BlueprintTable: A wrapper around the native Akeneo Table or a custom grid for defining roles.
 
-### Styling (Tailwind)
-* Use Tailwind CSS for all layouts.
-* Ensure components are responsive within the PIM's iframe context (usually max-width ~1200px).
-* Follow Akeneo's "Design System" colors (Grape, Anthracite, etc.) to ensure the UI feels native.
+KitVisualizer: A "Configuration" view where users see slots (based on the Table) and can search/associate SKUs.
+
+GraphQLGen: Uses the sync_attributes column (comma-separated string) to build the dynamic query fragment.
+
+5. API Interaction Patterns
+Initialization Flow
+Fetch currentProduct.
+
+Check if PIM.custom_variables['kit_blueprint_attribute'] exists in currentProduct.values.
+
+If yes: Fetch all associated products via /api/rest/v1/products?identifiers=....
+
+If no: Prompt user to "Enable Kit Management."
+
+Saving Data
+Blueprint: Update the Table attribute via PATCH /api/rest/v1/products/{id}.
+
+Associations: Update the KIT_CONTENT association via the same PATCH or the specific associations endpoint.
+
+6. Common Pitfalls
+Table Column Codes: Ensure the POST /api/rest/v1/attributes payload uses exact column codes that the extension expects (role_code, family, etc.).
+
+Permissions: Creating attributes/updating families requires high-level permissions. Gracefully handle 403 errors if the current user is not an Admin.
+
+Sync Attributes Formatting: Users might enter spaces in the sync_attributes list (e.g., "weight, color"). The GraphQL generator must .trim() these values.
+
+7. Run Commands
+Bash
+npm install        # Setup
+npm run dev        # Local development
+make update-dev    # Deploy to PIM (Dev)
+make update        # Deploy to PIM (Prod)
 
 ---
 
-## 4. Workflows & API Interaction
+### One final detail for the thought exercise:
+Since the extension is now "Self-Provisioning," we should consider what happens if two different kits use different "Sync Attributes." Because the Table is unique per product, this works perfectly! 
 
-### Loading a Kit
-1.  Fetch the Kit Product.
-2.  Parse the `kit_blueprint` JSON.
-3.  Identify associated SKUs in the `KIT_CONTENT` association.
-4.  Fetch those SKUs in **one batch call** to get their `family` and `values`.
-5.  Cross-reference the family codes with the Blueprint roles to populate the UI.
-
-### The GraphQL Generator Logic
-1.  Iterate through `blueprint.roles`.
-2.  For each role, extract the `sync_attributes` array.
-3.  Construct a GraphQL fragment or nested query that requests those specific attributes for the associated products.
-4.  Display the resulting string in a syntax-highlighted code block.
-
----
-
-## 5. Common Pitfalls
-
-* **Association Limits:** Akeneo REST API paginates associations. If a kit has >100 components, you must handle pagination in the fetch logic.
-* **Permission Errors:** Always wrap `PIM.api` calls in try/catch blocks. If a user doesn't have permissions for a component's family, the API will return a 403.
-* **Stale Data:** If a component is deleted from the PIM, the Association remains but the Product fetch will fail. Handle "Orphaned Associations" gracefully.
-
----
-
-## 6. Project Terminology
-
-* **Blueprint:** The master rule-set for a Kit (stored in JSON).
-* **Role:** A functional "slot" in the kit (e.g., "Handlebars").
-* **Sync Attributes:** The specific data points (Price, Weight, Color) that the Kit "borrows" from its components for the API output.
-* **Extension SDK:** The `PIM.*` javascript bridge provided by Akeneo.
-
----
-
-## 7. Run Commands
-
-```bash
-# Install dependencies
-npm install
-
-# Local Dev with HMR
-npm run dev
-
-# Deploy Dev Build to PIM
-make update-dev
-
-# Deploy Production Build to PIM
-make update
+**Would you like me to draft a sample `extension_configuration.json` showing how to define that initial `custom_variable` for the attribute name?**
