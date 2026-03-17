@@ -41,11 +41,21 @@ export function useKitProduct(): KitProductState {
         if (cancelled) return;
         setCurrentProduct(product as unknown as Product);
 
-        const hasAttribute =
-          blueprintAttrCode.length > 0 &&
-          blueprintAttrCode in ((product as any).values ?? {});
+        // Check whether the blueprint attribute exists in PIM, not whether the
+        // current product has a value for it — a freshly-provisioned product with
+        // no blueprint rows saved yet will have no key in product.values.
+        let attributeExists = false;
+        if (blueprintAttrCode.length > 0) {
+          try {
+            await PIM.api.attribute_v1.get({ code: blueprintAttrCode });
+            attributeExists = true;
+          } catch {
+            attributeExists = false;
+          }
+        }
 
-        setStatus(hasAttribute ? 'ready' : 'setup_required');
+        if (cancelled) return;
+        setStatus(attributeExists ? 'ready' : 'setup_required');
       } catch (err: any) {
         if (cancelled) return;
         setErrorMessage(err?.message ?? String(err));

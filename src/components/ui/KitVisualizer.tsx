@@ -1,5 +1,14 @@
-import React, { useState } from 'react';
-import { Button } from './button';
+import { useState } from 'react';
+import {
+  Badge,
+  Button,
+  Dropdown,
+  Helper,
+  IconButton,
+  Search,
+  SectionTitle,
+} from 'akeneo-design-system';
+import { CloseIcon, CopyIcon } from 'akeneo-design-system';
 import type { KitComponent } from '../../types/kit';
 import { buildSyncFragment } from '../../lib/graphqlGen';
 
@@ -24,125 +33,140 @@ function SlotCard({
 }) {
   const { role, product } = component;
   const [searchValue, setSearchValue] = useState('');
-  const [searchResults, setSearchResults] = useState<Product[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
-  async function handleSearch(value: string) {
+  async function handleSearchChange(value: string) {
     setSearchValue(value);
     if (value.length < 2) {
       setSearchResults([]);
+      setIsSearchOpen(false);
       return;
     }
-    setIsSearching(true);
     try {
       const results = await PIM.api.product_uuid_v1.list({
-        search: {
-          identifier: [{ operator: 'CONTAINS', value }],
-        } as any,
+        search: { identifier: [{ operator: 'CONTAINS', value }] },
         limit: 10,
-      });
-      setSearchResults((results as any)?._embedded?.items ?? []);
+      } as any);
+      const items = (results as any)?._embedded?.items ?? [];
+      setSearchResults(items);
+      setIsSearchOpen(items.length > 0);
     } catch {
       setSearchResults([]);
-    } finally {
-      setIsSearching(false);
+      setIsSearchOpen(false);
     }
   }
 
-  function handleSelect(p: Product) {
-    onAssign((p as any).identifier as string);
+  function handleSelect(p: any) {
+    onAssign(p.identifier as string);
     setSearchValue('');
     setSearchResults([]);
+    setIsSearchOpen(false);
   }
 
   function copyGraphQL() {
     if (!product) return;
-    const fragment = buildSyncFragment(
-      role.sync_attributes,
-      (product as any).identifier as string,
-    );
+    const fragment = buildSyncFragment(role.sync_attributes, (product as any).identifier as string);
     navigator.clipboard.writeText(fragment).catch(() => {});
   }
 
   return (
-    <div className="border border-gray-200 rounded p-3 bg-white shadow-sm">
-      <div className="flex items-start justify-between mb-2">
-        <div>
-          <span className="font-mono text-sm font-semibold text-gray-800">
-            {role.role_code || <em className="text-gray-400">unnamed</em>}
+    <div style={{
+      border: '1px solid #c7cbce',
+      borderRadius: '4px',
+      padding: '16px',
+      background: '#fff',
+    }}>
+      {/* Slot header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <strong style={{ fontFamily: 'monospace', fontSize: '13px' }}>
+            {role.role_code || <em>unnamed</em>}
+          </strong>
+          <span style={{ color: '#67768a', fontSize: '11px' }}>
+            family: {role.family || '—'}
           </span>
-          <span className="ml-2 text-xs text-gray-500">family: {role.family || '—'}</span>
         </div>
         {role.required && (
-          <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">
-            Required
-          </span>
+          <Badge level="danger">Required</Badge>
         )}
       </div>
 
+      {/* Assigned product */}
       {product ? (
-        <div className="bg-green-50 border border-green-200 rounded p-2 mb-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="text-sm font-medium text-green-800">
-                {(product as any).identifier as string}
-              </span>
-              <span className="ml-2 text-xs text-green-600">
-                {(product as any).family as string}
-              </span>
-            </div>
-            <div className="flex gap-1">
-              {role.sync_attributes && (
-                <button
-                  onClick={copyGraphQL}
-                  className="text-xs text-gray-400 hover:text-gray-600 px-1"
-                  title="Copy GraphQL fragment"
-                >
-                  {'{…}'}
-                </button>
-              )}
-              <button
-                onClick={onRemove}
-                className="text-xs text-gray-400 hover:text-red-500"
-                title="Remove"
-              >
-                ✕
-              </button>
-            </div>
+        <div style={{
+          background: '#f5f9fc',
+          border: '1px solid #a1d4f0',
+          borderRadius: '4px',
+          padding: '8px 12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <div>
+            <span style={{ fontWeight: 600, fontSize: '13px' }}>
+              {(product as any).identifier as string}
+            </span>
+            <span style={{ color: '#67768a', fontSize: '11px', marginLeft: '8px' }}>
+              {(product as any).family as string}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            {role.sync_attributes && (
+              <IconButton
+                icon={<CopyIcon />}
+                title="Copy GraphQL fragment"
+                level="tertiary"
+                ghost="borderless"
+                size="small"
+                onClick={copyGraphQL}
+              />
+            )}
+            <IconButton
+              icon={<CloseIcon />}
+              title="Remove assignment"
+              level="tertiary"
+              ghost="borderless"
+              size="small"
+              onClick={onRemove}
+            />
           </div>
         </div>
       ) : (
-        <div className="relative">
-          <input
-            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+        /* Search for a product to assign */
+        <Dropdown>
+          <Search
+            searchValue={searchValue}
+            onSearchChange={handleSearchChange}
             placeholder="Search by identifier…"
-            value={searchValue}
-            onChange={(e) => handleSearch(e.target.value)}
+            title="Search products"
           />
-          {isSearching && (
-            <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded shadow text-xs p-2 text-gray-500 z-10">
-              Searching…
-            </div>
+          {isSearchOpen && (
+            <Dropdown.Overlay
+              verticalPosition="down"
+              onClose={() => setIsSearchOpen(false)}
+            >
+              <Dropdown.Header>
+                <Dropdown.Title>Products</Dropdown.Title>
+              </Dropdown.Header>
+              <Dropdown.ItemCollection>
+                {searchResults.map((p: any) => (
+                  <Dropdown.Item key={p.uuid} onClick={() => handleSelect(p)}>
+                    <strong>{p.identifier}</strong>
+                    <span style={{ color: '#67768a', marginLeft: '8px', fontSize: '11px' }}>
+                      {p.family}
+                    </span>
+                  </Dropdown.Item>
+                ))}
+              </Dropdown.ItemCollection>
+            </Dropdown.Overlay>
           )}
-          {searchResults.length > 0 && (
-            <ul className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded shadow z-10 max-h-40 overflow-y-auto">
-              {searchResults.map((p) => (
-                <li
-                  key={(p as any).uuid as string}
-                  className="px-2 py-1.5 text-sm hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0"
-                  onClick={() => handleSelect(p)}
-                >
-                  <span className="font-medium">{(p as any).identifier as string}</span>
-                  <span className="ml-2 text-xs text-gray-400">{(p as any).family as string}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        </Dropdown>
       )}
 
+      {/* Sync attributes hint */}
       {role.sync_attributes && (
-        <div className="mt-1.5 text-xs text-gray-400">
+        <div style={{ marginTop: '8px', fontSize: '11px', color: '#a1acb7' }}>
           Sync: {role.sync_attributes}
         </div>
       )}
@@ -161,25 +185,38 @@ export function KitVisualizer({
 }: KitVisualizerProps) {
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold text-sm">Kit Components</h3>
-        <Button size="sm" onClick={onSave} disabled={!isDirty || isSaving}>
-          {isSaving ? 'Saving…' : isDirty ? 'Save Components *' : 'Saved'}
+      <SectionTitle>
+        <SectionTitle.Title>Kit Components</SectionTitle.Title>
+        <SectionTitle.Spacer />
+        <Button
+          level="primary"
+          onClick={onSave}
+          disabled={!isDirty || isSaving}
+          size="small"
+        >
+          {isSaving ? 'Saving…' : 'Save Components'}
         </Button>
-      </div>
+      </SectionTitle>
 
       {saveError && (
-        <div className="bg-red-50 border border-red-200 rounded p-2 mb-3 text-sm text-red-700">
-          {saveError}
+        <div style={{ marginTop: '12px' }}>
+          <Helper level="error">{saveError}</Helper>
         </div>
       )}
 
       {components.length === 0 ? (
-        <p className="text-sm text-gray-500 italic">
-          No roles defined in the blueprint yet. Add roles in the Blueprint tab first.
-        </p>
+        <div style={{ marginTop: '16px' }}>
+          <Helper level="info">
+            No roles defined in the blueprint yet. Add roles in the Blueprint tab first.
+          </Helper>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div style={{
+          marginTop: '16px',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+          gap: '16px',
+        }}>
           {components.map((c) => (
             <SlotCard
               key={c.role.role_code}

@@ -1,87 +1,99 @@
-# Project Context: Akeneo Kit Manager Extension (Table-Driven)
+# Project Context: Akeneo Kit Manager Extension
 
-This repository is an Akeneo UI extension for managing Product Kits. It uses **TypeScript, React, and Vite**. This version uses **Akeneo Table Attributes** as the "Blueprint" (the rules) and standard **Associations** for the "Components" (the instances).
-
----
-
-## 1. Logic & Self-Provisioning
-* **Auto-Discovery:** On load, the extension checks for a specific Table Attribute code (stored in `PIM.custom_variables['kit_blueprint_attribute']`).
-* **Self-Provisioning:** If the attribute is missing, the extension provides a "Setup Kit Support" button. This triggers:
-    1. `POST /api/rest/v1/attributes` to create a Table Attribute with columns: `role_code` (text), `family` (text), `required` (boolean), and `sync_attributes` (text).
-    2. `PATCH /api/rest/v1/families/{current_family}` to add this attribute to the product's family.
-* **The "Link":** Components are associated via the `KIT_CONTENT` association type. The extension maps these components to Table rows by matching the component's **Family** to the `family` column in the Table.
+This repository is an Akeneo UI extension for managing Product Kits. It uses **TypeScript, React, and Vite**. The blueprint (role definitions) is stored as JSON in a `pim_catalog_textarea` attribute (temporary — see `TODO[TABLE_MIGRATION]`). Components are linked via the `KIT_CONTENT` association type.
 
 ---
 
-## 2. Technical Stack & Akeneo SDK (`PIM.*`)
+## 1. UI — Akeneo Design System (DSM)
 
-### SDK Interaction
-* **Context:** The extension runs as a **Product Tab**. Use `PIM.api.product_v1.get()` to retrieve the current product and its `identifier` and `family`.
-* **CORS & Proxy:** Always use `PIM.api.external.call()` to interact with REST endpoints (Attributes, Families, Products) to avoid browser-side CORS blocks.
-* **Persistent Config:** Use `PIM.custom_variables` for the attribute code. If the variable is empty, the extension is in "Setup Mode."
+**All UI must use the Akeneo Design System.** Never use raw HTML elements, Tailwind utility classes, shadcn/ui, or custom CSS for anything the DSM covers. Reference: https://dsm.akeneo.com/
+
+Import from `akeneo-design-system`. Key components in use:
+
+| Need | Component | Key props |
+|------|-----------|-----------|
+| Buttons | `Button` | `level="primary\|secondary\|tertiary\|warning\|danger"`, `ghost`, `disabled` |
+| Icon-only buttons | `IconButton` | `icon`, `title`, `ghost`, `level` |
+| Tab navigation | `TabBar` + `TabBar.Tab` | `moreButtonTitle` (required); `isActive`, `onClick` |
+| Section headers | `SectionTitle` + `SectionTitle.Title` | `sticky` |
+| Alerts / help text | `Helper` | `level="info\|warning\|error\|success"`, `inline` |
+| Data tables | `Table`, `Table.Header`, `Table.HeaderCell`, `Table.Body`, `Table.Row`, `Table.Cell`, `Table.ActionCell` | `isSelectable` |
+| Status labels | `Badge` | `level` |
+| Checkboxes | `Checkbox` | `checked` (boolean), `onChange` (receives boolean) |
+| Search input | `Search` | `searchValue`, `onSearchChange`, `placeholder`, `title` |
+| Dropdowns | `Dropdown`, `Dropdown.Overlay`, `Dropdown.ItemCollection`, `Dropdown.Item` | — |
+| Notifications | `MessageBar` | `level`, `title`, `onClose` |
 
 ---
 
-## 3. Data Shapes & Types
+## 2. Logic & Self-Provisioning
 
-### The Table Blueprint
-The Table attribute returns an array of objects.
+- **Auto-Discovery:** On load, checks `PIM.custom_variables['kit_blueprint_attribute']` for the attribute code, then verifies the attribute exists via `PIM.api.attribute_v1.get()`.
+- **Self-Provisioning:** If the attribute is missing, "Setup Kit Support" button:
+  1. Creates a `pim_catalog_textarea` attribute (temporary — see `TODO[TABLE_MIGRATION]`)
+  2. PATCHes the current product's family to include the attribute
+- **The "Link":** Components associated via `KIT_CONTENT` association type, mapped to blueprint rows by matching the component product's `family` to the `family` field in each row.
+
+### TODO[TABLE_MIGRATION]
+`USE_TABLE_ATTRIBUTE = false` in `src/lib/kitApi.ts`. When the SDK team adds `table_configuration` to `AttributeCreateData` in `common/global.d.ts`, flip this flag to `true` to switch from JSON-in-textarea to a native `pim_catalog_table` attribute. All read/write code already handles both formats. Search `TODO[TABLE_MIGRATION]` across the repo for all touch points.
+
+---
+
+## 3. Technical Stack & SDK (`PIM.*`)
+
+- **Context:** Product Tab — use `PIM.context.product.uuid` then `PIM.api.product_uuid_v1.get()`.
+- **SDK preferred:** Use `PIM.api.*` methods for all operations. Only fall back to `PIM.api.external.call()` when the SDK doesn't support required fields (e.g. `table_configuration`).
+- **Config:** `PIM.custom_variables['kit_blueprint_attribute']` — empty means Setup Mode.
+
+---
+
+## 4. Data Shapes
+
 ```typescript
 interface KitBlueprintRow {
-    uuid: string;
-    role_code: string;      // e.g., "front_wheel"
-    family: string;         // e.g., "wheels"
-    required: boolean;
-    sync_attributes: string; // e.g., "weight,color,diameter"
+  id?: number;             // assigned by PIM on table attributes; omit on new rows
+  role_code: string;       // e.g. "front_wheel"
+  family: string;          // e.g. "wheels"
+  required: boolean;
+  sync_attributes: string; // comma-separated, trim() before use
 }
-Component Mapping
-TypeScript
+
 interface KitComponent {
-    role: KitBlueprintRow;
-    product: AkeneoProduct | null; // The associated product matching this role's family
+  role: KitBlueprintRow;
+  product: Product | null; // associated product matching this role's family
 }
-4. UI Architecture
-Component Breakdown
-SetupView: Visible only when the Table Attribute is missing. Handles API calls to create and assign the Table.
+```
 
-BlueprintTable: A wrapper around the native Akeneo Table or a custom grid for defining roles.
+Blueprint is stored as `JSON.stringify(KitBlueprintRow[])` in the textarea value until table attributes are supported.
 
-KitVisualizer: A "Configuration" view where users see slots (based on the Table) and can search/associate SKUs.
+---
 
-GraphQLGen: Uses the sync_attributes column (comma-separated string) to build the dynamic query fragment.
+## 5. API Interaction Patterns
 
-5. API Interaction Patterns
-Initialization Flow
-Fetch currentProduct.
+- **Read product:** `PIM.api.product_uuid_v1.get({ uuid })`
+- **Check attribute exists:** `PIM.api.attribute_v1.get({ code })` — throws on 404
+- **Create attribute:** `PIM.api.attribute_v1.create({ data })` (textarea); `external.call()` for table type
+- **Patch family:** `PIM.api.family_v1.get()` first (read existing attributes array), then `family_v1.patch()` — patching replaces the whole array, always merge
+- **Save blueprint:** `PIM.api.product_uuid_v1.patch()` with `values`
+- **Save associations:** `PIM.api.product_uuid_v1.patch()` with `associations.KIT_CONTENT.products`
+- **Search products:** `PIM.api.product_uuid_v1.list({ search: { identifier: [{ operator: 'IN', value: [...] }] } })`
 
-Check if PIM.custom_variables['kit_blueprint_attribute'] exists in currentProduct.values.
+---
 
-If yes: Fetch all associated products via /api/rest/v1/products?identifiers=....
+## 6. Common Pitfalls
 
-If no: Prompt user to "Enable Kit Management."
+- `sync_attributes` may have spaces around commas — always `.split(',').map(s => s.trim()).filter(Boolean)`
+- `family_v1.patch()` replaces the entire `attributes` array — always GET first and merge
+- `KIT_CONTENT` is hardcoded — if it doesn't exist in PIM, association saves silently fail; surface this clearly
+- `PIM.context.product` only exists when position is `pim.product.tab`
 
-Saving Data
-Blueprint: Update the Table attribute via PATCH /api/rest/v1/products/{id}.
+---
 
-Associations: Update the KIT_CONTENT association via the same PATCH or the specific associations endpoint.
+## 7. Run Commands
 
-6. Common Pitfalls
-Table Column Codes: Ensure the POST /api/rest/v1/attributes payload uses exact column codes that the extension expects (role_code, family, etc.).
-
-Permissions: Creating attributes/updating families requires high-level permissions. Gracefully handle 403 errors if the current user is not an Admin.
-
-Sync Attributes Formatting: Users might enter spaces in the sync_attributes list (e.g., "weight, color"). The GraphQL generator must .trim() these values.
-
-7. Run Commands
-Bash
+```bash
 npm install        # Setup
 npm run dev        # Local development
 make update-dev    # Deploy to PIM (Dev)
 make update        # Deploy to PIM (Prod)
-
----
-
-### One final detail for the thought exercise:
-Since the extension is now "Self-Provisioning," we should consider what happens if two different kits use different "Sync Attributes." Because the Table is unique per product, this works perfectly! 
-
-**Would you like me to draft a sample `extension_configuration.json` showing how to define that initial `custom_variable` for the attribute name?**
+```

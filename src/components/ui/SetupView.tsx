@@ -1,5 +1,4 @@
-import React from 'react';
-import { Button } from './button';
+import { Button, Helper, SectionTitle } from 'akeneo-design-system';
 import { useKitSetup } from '../../hooks/useKitSetup';
 
 interface SetupViewProps {
@@ -10,46 +9,46 @@ interface SetupViewProps {
 
 export function SetupView({ product, blueprintAttrCode, onSetupComplete }: SetupViewProps) {
   const { isProvisioning, provisioningError, run } = useKitSetup(onSetupComplete);
+  const attrCode = blueprintAttrCode || 'kit_blueprint';
 
   return (
-    <div className="p-6 max-w-xl">
-      <h2 className="text-lg font-semibold mb-2">Kit Management Not Yet Enabled</h2>
-      <p className="text-sm text-gray-600 mb-4">
-        This product does not have the Kit Blueprint attribute yet. Clicking{' '}
-        <strong>Setup Kit Support</strong> will:
-      </p>
-      <ul className="list-disc list-inside text-sm text-gray-600 mb-4 space-y-1">
-        <li>
-          Create a Table attribute with code <code className="font-mono bg-gray-100 px-1 rounded">{blueprintAttrCode || 'kit_blueprint'}</code>
-        </li>
-        <li>
-          Add this attribute to the <strong>{(product as any).family}</strong> family
-        </li>
-      </ul>
+    <div style={{ padding: '20px', maxWidth: '600px' }}>
+      <SectionTitle>
+        <SectionTitle.Title>Kit Management Not Yet Enabled</SectionTitle.Title>
+      </SectionTitle>
 
-      <div className="bg-amber-50 border border-amber-200 rounded p-3 mb-4 text-sm text-amber-800">
-        <strong>Prerequisites — must exist in PIM before setup:</strong>
-        <ul className="list-disc list-inside mt-1 space-y-1">
-          <li>
-            Association type with code <code className="font-mono bg-amber-100 px-1 rounded">KIT_CONTENT</code> (Settings &rarr; Association Types)
-          </li>
-          <li>Akeneo Growth or Serenity edition (required for Table Attributes)</li>
-          <li>API token belongs to an Admin user</li>
-        </ul>
+      <div style={{ marginTop: '16px' }}>
+        <Helper level="info">
+          Clicking <strong>Setup Kit Support</strong> will create a{' '}
+          <code>{attrCode}</code> attribute and add it to the{' '}
+          <strong>{(product as any).family}</strong> family.
+        </Helper>
+      </div>
+
+      <div style={{ marginTop: '12px' }}>
+        <Helper level="warning">
+          <strong>Before running setup, confirm the following exist in PIM:</strong>
+          <br />• Association type with code <code>KIT_CONTENT</code> (Settings → Association Types)
+          <br />• Akeneo Growth or Serenity edition (required for future Table Attribute support)
+          <br />• API token belongs to an Admin user (required to create attributes and modify families)
+        </Helper>
       </div>
 
       {provisioningError && (
-        <div className="bg-red-50 border border-red-200 rounded p-3 mb-4 text-sm text-red-700">
-          {provisioningError}
+        <div style={{ marginTop: '12px' }}>
+          <Helper level="error">{provisioningError}</Helper>
         </div>
       )}
 
-      <Button
-        onClick={() => run(product, blueprintAttrCode || 'kit_blueprint')}
-        disabled={isProvisioning}
-      >
-        {isProvisioning ? 'Setting up…' : 'Setup Kit Support'}
-      </Button>
+      <div style={{ marginTop: '20px' }}>
+        <Button
+          level="primary"
+          onClick={() => run(product, attrCode)}
+          disabled={isProvisioning}
+        >
+          {isProvisioning ? 'Setting up…' : 'Setup Kit Support'}
+        </Button>
+      </div>
     </div>
   );
 }
