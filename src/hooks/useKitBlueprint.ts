@@ -16,9 +16,15 @@ interface UseKitBlueprintResult {
 function parseRows(product: Product, blueprintAttrCode: string): KitBlueprintRow[] {
   const values = (product as any).values ?? {};
   const entries: any[] = values[blueprintAttrCode] ?? [];
-  // Table attribute stores rows in the first entry with locale/scope null
   const entry = entries.find((e: any) => !e.locale && !e.scope) ?? entries[0];
-  return (entry?.data ?? []) as KitBlueprintRow[];
+  const raw = entry?.data;
+  if (!raw) return [];
+  // TODO[TABLE_MIGRATION]: Table attribute returns an array directly.
+  // Textarea stores a JSON string — handle both so migration requires no code change here.
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw); } catch { return []; }
+  }
+  return raw as KitBlueprintRow[];
 }
 
 export function useKitBlueprint(
